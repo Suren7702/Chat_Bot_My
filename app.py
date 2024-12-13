@@ -2,6 +2,7 @@ from flask import Flask,render_template,redirect,request,session,redirect,url_fo
 import mysql.connector
 import json
 from datetime import datetime
+from werkzeug.security import generate_password_hash
 import random
 import pyrebase
 #firebase config
@@ -35,6 +36,13 @@ db_config = {
 }
 conn=mysql.connector.connect(host='localhost',port='3306',user='root',password='',database='register')
 cur=conn.cursor()
+def get_db_connection():
+    return mysql.connector.connect(
+        host='localhost',
+        user='root',
+        password='',
+        database='school'
+    )
 def get_attendance_data(roll_number=None, date=None):
     if roll_number:
         # Fetch attendance for a specific student
@@ -76,14 +84,14 @@ def chat():
 
 @app.route('/register')
 def register():
-    return render_template('form.html')
+    return render_template('form.html')    
 
 @app.route('/login_validation',methods=['POST'])
 def login_validation():
     email=request.form.get('email')
     password=request.form.get('password')
-
-    cur.execute("""SELECT * FROM `users` WHERE `email` LIKE '{}' AND `password` LIKE '{}'""".format(email,password))
+    hashed_password = generate_password_hash(password)
+    cur.execute("SELECT * FROM `users` WHERE `email` = %s AND `password` = %s", (email, hashed_password))
     users = cur.fetchall()
     if len(users)>0:
         flash('You were successfully logged in')
