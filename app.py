@@ -192,31 +192,51 @@ def login_validation():
         return redirect('/')
 @app.route('/ask', methods=['POST'])
 def ask():
-    intents = get_intents()
     user_input = request.form.get('message')
-    
+
+    # Check if the input is requesting student details
     if user_input.lower().startswith('student'):
         try:
+            # Extract roll number from the user input
             roll_number = int(user_input.split(' ')[1])
         except (IndexError, ValueError):
-            return jsonify({'response': 'Please provide a valid roll number.'})
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor(dictionary=True)
+            return jsonify({'response': 'Please provide a valid roll number in the format: student <roll_or_id>'})
+        
+        try:
+            # Connect to the database
+            conn = mysql.connector.connect(**db_config)
+            cursor = conn.cursor(dictionary=True)
 
-        query = "SELECT name, age, class FROM students WHERE roll_number = %s"
-        cursor.execute(query, (roll_number,))
-        result = cursor.fetchone()
-        cursor.close()
-        conn.close()
+            # Query to fetch full student details
+            query = """
+                SELECT 
+                    roll_or_id, name, age,department_or_class, email 
+                FROM students 
+                WHERE roll_or_id = %s
+            """
+            cursor.execute(query, (roll_number,))
+            result = cursor.fetchone()
 
-        if result:
-            response = (
-                f"Name: {result['name']}<br>"
-                f"Age: {result['age']}<br>"
-                f"Class: {result['class']}<br>"
-            )
-        else:
-            response = "Student not found."
+            # Close database connections
+            cursor.close()
+            conn.close()
+
+            # Format the chatbot response
+            if result:
+               response = (
+                    f"<div style='font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6;'>"
+                    f"🆔 <strong>Roll Number:</strong> {result['roll_or_id']}<br>"
+                    f"👤 <strong>Name:</strong> {result['name']}<br>"
+                    f"🎂 <strong>Age:</strong> {result['age']} years<br>"
+                    f"🏫 <strong>Class:</strong> {result['department_or_class']}<br>"
+                    f"✉️ <strong>Email:</strong> {result['email']}<br>"
+                    f"</div>"
+                    )
+
+            else:
+                response = "⚠️ Student not found. Please check the roll number and try again."
+        except mysql.connector.Error as err:
+            response = f"🚨 Database Error: {err}"
     elif "attendance" in user_input.lower():
         if "for today" in user_input.lower():
             today_date = datetime.now().strftime("%Y-%m-%d")
