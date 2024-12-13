@@ -3,6 +3,7 @@ import mysql.connector
 import json
 from datetime import datetime
 from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash
 import random
 import pyrebase
 #firebase config
@@ -34,7 +35,7 @@ db_config = {
     'password': '',
     'database': 'school'
 }
-conn=mysql.connector.connect(host='localhost',port='3306',user='root',password='',database='register')
+conn=mysql.connector.connect(host='localhost',user='root',password='',database='school')
 cur=conn.cursor()
 def get_db_connection():
     return mysql.connector.connect(
@@ -85,21 +86,110 @@ def chat():
 @app.route('/register')
 def register():
     return render_template('form.html')    
+@app.route('/submit', methods=['POST'])
+def submit():
+    # Retrieve form data
+    user_type = request.form['user_type']
+    roll_or_id = request.form['roll_or_id']
+    name = request.form['name']
+    age = request.form['age']
+    department_or_class = request.form['department_or_class']
+    email = request.form['email']
+    password = request.form['password']
 
-@app.route('/login_validation',methods=['POST'])
-def login_validation():
-    email=request.form.get('email')
-    password=request.form.get('password')
     hashed_password = generate_password_hash(password)
-    cur.execute("SELECT * FROM `users` WHERE `email` = %s AND `password` = %s", (email, hashed_password))
-    users = cur.fetchall()
-    if len(users)>0:
-        flash('You were successfully logged in')
-        return redirect('chat')
-    else:
-        flash('Invalid credentials !!!')
+
+    # Map user type to the corresponding database table
+    table_map = {
+        "Student": "students",
+        "Staff": "staff",
+        "Faculty": "faculty"
+    }
+
+    target_table = table_map.get(user_type)  # Determine the target table based on user type
+    if not target_table:
+        flash("Invalid user type selected.", "error")
+        return redirect(url_for('register'))
+
+    try:
+        # Connect to the database
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+
+        # Check if the user already exists in the respective table
+        check_query = f"SELECT * FROM {target_table} WHERE roll_or_id = %s"
+        cursor.execute(check_query, (roll_or_id,))
+        existing_user = cursor.fetchone()
+
+        if existing_user:
+            flash(f"Error: {user_type} with ID {roll_or_id} already exists!", "error")
+            return redirect(url_for('register'))
+
+        # Insert data into the respective table
+        insert_query = f"""
+        INSERT INTO {target_table} (roll_or_id, name, age, department_or_class, email, password, registration_timestamp)
+        VALUES (%s, %s, %s, %s, %s, %s ,  CURRENT_TIMESTAMP)
+        """
+        values = (roll_or_id, name, age, department_or_class, email , hashed_password)
+        cursor.execute(insert_query, values)
+        conn.commit()
+
+        # Close connections
+        cursor.close()
+        conn.close()
+
+        flash(f"Success: {user_type} registered successfully!", "success")
+        return redirect(url_for('register'))
+
+    except mysql.connector.Error as err:
+        flash(f"Database Error: {err}", "error")
+        return redirect(url_for('register'))
+
+@app.route('/login_validation', methods=['POST'])
+def login_validation():
+    # Retrieve form data
+    email = request.form.get('email')
+    password = request.form.get('password')
+    user_type = request.form.get('user_type')  # Add a dropdown in your login form for user type
+
+    # Map user type to the corresponding table
+    table_map = {
+        "Student": "students",
+        "Staff": "staff",
+        "Faculty": "faculty"
+    }
+
+    target_table = table_map.get(user_type)
+    if not target_table:
+        flash("Invalid user type selected.", "error")
         return redirect('/')
 
+    try:
+        # Query the respective table for the email
+        query = f"SELECT email, password FROM {target_table} WHERE email = %s"
+        cur.execute(query, (email,))
+        user = cur.fetchone()
+
+        if user:
+            # Validate the password
+            stored_password_hash = user[1]  # Assuming password is the second column
+            if check_password_hash(stored_password_hash, password):
+                flash(f"You were successfully logged in as {user_type}!", "success")
+                return redirect('/chat')
+            else:
+                flash("Invalid credentials! Incorrect password.", "error")
+        else:
+            flash("Invalid credentials! Email not found.", "error")
+
+        return redirect('/')
+
+    except mysql.connector.Error as err:
+        flash(f"Database Error: {err}", "error")
+        return redirect('/')
+
+    except Exception as e:
+        flash(f"Unexpected Error: {e}", "error")
+        return redirect('/')
 @app.route('/ask', methods=['POST'])
 def ask():
     intents = get_intents()
